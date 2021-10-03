@@ -1,0 +1,655 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+                                 #Data Science Project#
+
+#setting working directory 
+```{r}
+require(dplyr)
+require(readr)
+require(ggplot2)
+require(caTools)
+require(caret)
+require(corrplot)
+require(car)
+require(rpart)
+require(rpart.plot)
+require(randomForest)
+require(party)
+require(partykit)
+require(class)
+require(e1071)
+require(cowplot)
+setwd='F:/R/DataSciencewithRProject/Dataset'
+```
+
+```{r}
+data <- read.csv('churn.csv')       # load dataset
+```
+
+# structure , dimensions and glimpse of data
+```{r}
+str(data)
+dim(data)
+glimpse(data)
+```
+
+```{r}
+# duplicates
+
+data <- distinct(data)
+```
+
+```{r}
+# convert into lower-case
+
+data <- mutate_if(data,is.character,tolower)
+```
+
+
+```{r}
+# missing values
+colSums(is.na(data))
+```
+
+```{r}
+# as we have seen missing values in total charges
+# let's treat it
+
+ missing_data <- data[is.na(data$TotalCharges),]
+```
+
+```{r}
+# they are the people whose tenure is zero i.e new customers , so they haven't made any
+ # payment
+ 
+ # lets check any other zero in tenure
+ 
+ tenure_data <- data[(data$tenure==0),]
+```
+
+```{r}
+# so clearly seen that we have those customers only whose total charges is na
+ # so remove this missing values
+ 
+ data <- na.omit(data)
+```
+
+   
+```{r}
+sapply(data,n_distinct)
+```
+
+
+```{r}
+summary(as.factor(data$gender))
+
+```
+#univariate analysis just checking the individual distribution of attributes
+```{r}
+require(ggplot2)
+ggplot(data, aes(x=gender))+geom_bar()               #equally distributed data no gender baised 
+```
+
+```{r}
+summary(as.factor(data$SeniorCitizen))
+data$SeniorCitizen <-  if_else((data$SeniorCitizen)=='1','yes','no')   # senior citizen - convert them into yes, no
+```
+
+```{r}
+ggplot(data, aes(x=SeniorCitizen))+geom_bar() 
+```
+
+
+
+```{r}
+table(as.factor(data$Partner))
+```
+```{r}
+ggplot(data, aes(x=Partner))+geom_bar() 
+```
+
+```{r}
+summary(as.factor(data$Dependents))
+ggplot(data, aes(x=Dependents))+geom_bar() 
+```
+
+```{r}
+summary(data$tenure)
+# min - 1
+# max-72
+# convert them into categories i.e 0-12 months , 12-24 months , 24-48 months ,  48-60 months
+ # and 60-72 months
+```
+
+```{r}
+group_tenure <- function(tenure){
+  if (tenure >= 0 & tenure <= 12){
+    return('0-12 Month')
+  }else if(tenure > 12 & tenure <= 24){
+    return('12-24 Month')
+  }else if (tenure > 24 & tenure <= 48){
+    return('24-48 Month')
+  }else if (tenure > 48 & tenure <=60){
+    return('48-60 Month')
+  }else if (tenure > 60){
+    return('> 60 Month')
+  }
+}
+```
+
+```{r}
+data$tenure_group <- sapply(data$tenure,group_tenure)
+```
+
+```{r}
+# now remove tenure
+data$tenure <- NULL
+
+```
+
+```{r}
+summary(as.factor(data$PhoneService))
+ggplot(data, aes(x=PhoneService))+geom_bar()
+
+```
+
+```{r}
+summary(as.factor(data$MultipleLines))
+# merge no phone service to no
+data$MultipleLines[data$MultipleLines=="no phone service"|data$MultipleLines=="no"] <- "no"
+ggplot(data, aes(x=MultipleLines))+geom_bar()
+
+```
+
+```{r}
+summary(as.factor(data$InternetService))
+
+```
+
+```{r}
+# online security
+table(data$OnlineSecurity)
+  # convert no service in to no
+
+data$OnlineSecurity[data$OnlineSecurity=="no internet service"|data$OnlineSecurity=="no"] <- "no"
+
+```
+
+```{r}
+summary(as.factor(data$OnlineBackup))
+
+# convert no service in to no
+
+data$OnlineBackup[data$OnlineBackup=="no internet service"|data$OnlineBackup=="no"] <- "no"
+
+```
+
+```{r}
+summary(as.factor(data$DeviceProtection))
+data$DeviceProtection[data$DeviceProtection=="no internet service"|data$DeviceProtection=="no"] <- "no"
+```
+
+```{r}
+# tech support
+table(data$TechSupport)
+# convert no service in to no
+
+data$TechSupport[data$TechSupport=="no internet service"|data$TechSupport=="no"] <- "no"
+```
+
+```{r}
+table(data$StreamingTV)
+data$StreamingTV[data$StreamingTV=="no internet service"|data$StreamingTV=="no"] <- "no"
+```
+
+```{r}
+table(data$StreamingMovies)
+# convert no service in to no
+
+data$StreamingMovies[data$StreamingMovies=="no internet service"|data$StreamingMovies=="no"] <- "no"
+```
+
+```{r}
+table(data$Contract)
+```
+
+```{r}
+table(data$PaperlessBilling)
+```
+
+```{r}
+table(data$PaymentMethod)
+table(data$Churn)
+```
+
+```{r}
+summary(data$MonthlyCharges)                                #outlier treatment 
+plot(quantile(data$MonthlyCharges, seq(0, 1, by = 0.01)))
+```
+
+```{r}
+summary(data$TotalCharges)
+plot(quantile(data$TotalCharges, seq(0, 1, by = 0.01)))
+data$TotalCharges[which(data$TotalCharges > 8039.8830)] <- 8039.8830
+```
+#bivariate analysis 
+```{r}
+data %>% 
+  group_by(Churn) %>% 
+  summarise(Number = n()) %>%
+  mutate(Percent = prop.table(Number)*100) %>% 
+ggplot(aes(Churn, Percent)) + 
+  geom_col(aes(fill = Churn)) +
+  labs(title = "Churn Percentage") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  geom_text(aes(label = sprintf("%.2f%%", Percent)), hjust = 0.01,vjust = -0.5, size = 4) +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(data[!is.na(data$Churn),],aes(x = gender, fill =  gender)) + geom_bar() + coord_polar()
+```
+
+```{r}
+plot_grid(ggplot(data, aes(x=gender,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"), 
+          ggplot(data, aes(x=SeniorCitizen,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x=Partner,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x=Dependents,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage") +
+          theme_minimal(),
+          align = "h")
+
+```
+
+```{r}
+
+plot_grid(ggplot(data, aes(x= InternetService ,fill = Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"), 
+          ggplot(data, aes(x= OnlineSecurity, fill = Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x= OnlineBackup, fill = Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x= DeviceProtection, fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x=PhoneService,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x=MultipleLines,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x= TechSupport, fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage"),
+          ggplot(data, aes(x= StreamingTV ,fill=Churn))+ geom_bar(position = 'fill') + labs(y = "Percentage") + 
+          theme_minimal(),
+          align = "h")
+```
+
+```{r}
+# correlation of numerical variables
+ 
+numeric_data <- sapply(data,is.numeric)
+corr_matrix <- cor(data[,numeric_data])
+corr_plot <- corrplot(corr_matrix , method="number")
+
+# corrplot shows total charges and monthly charges are highly correlated
+# one of them will be removed a good idea
+
+# remove total charges
+
+data$TotalCharges <- NULL
+```
+
+```{r}
+# convert all char variables into factors
+data <- mutate_if(data,is.character,as.factor)
+```
+
+```{r}
+
+data$Churn <-  if_else((data$Churn)=='yes','1','0')
+data$Churn <- as.numeric(data$Churn)
+data$customerID <- NULL
+```
+
+```{r}
+require(dummies)
+data_dum <- dummy.data.frame(as.data.frame(data))   #creating dummies
+
+```
+
+```{r}
+# model- building
+set.seed(100)
+model <- sample.split(data_dum$Churn , SplitRatio = 0.70)
+train = data_dum[model,]
+test = data_dum[!model,]
+
+```
+
+#LOGISTIC REGRESSION 
+
+```{r}
+model_1 <- glm(as.factor(Churn) ~ ., data = train, family = 'binomial')
+
+summary(model_1)
+#AIC: 4118.9
+
+```
+
+```{r}
+model_2 <- step(model_1)
+
+```
+
+```{r}
+summary(model_2)
+```
+```{r}
+vif(model_2)
+```
+
+```{r}
+# remove monthly charges
+
+lrm_1 <- glm(formula = Churn ~ Dependentsno + MultipleLinesno + InternetServicedsl + 
+               `InternetServicefiber optic` + OnlineSecurityno + DeviceProtectionno + 
+               TechSupportno + StreamingTVno + StreamingMoviesno + `Contractmonth-to-month` + 
+               `Contractone year` + PaperlessBillingno + `PaymentMethodelectronic check` + 
+               `tenure_group> 60 Month` + `tenure_group0-12 Month` + 
+               `tenure_group12-24 Month`, family = "binomial", data = train)
+summary(lrm_1)
+#AIC: 4114.6
+vif(lrm_1)
+```
+
+```{r}
+# remove `InternetServicefiber optic`
+lrm_2 <- glm(formula = Churn ~ Dependentsno + MultipleLinesno + InternetServicedsl + 
+                 OnlineSecurityno + DeviceProtectionno + 
+               TechSupportno + StreamingTVno + StreamingMoviesno + `Contractmonth-to-month` + 
+               `Contractone year` + PaperlessBillingno + `PaymentMethodelectronic check` + 
+               MonthlyCharges + `tenure_group> 60 Month` + `tenure_group0-12 Month` + 
+               `tenure_group12-24 Month`, family = "binomial", data = train)
+
+summary(lrm_2)
+#AIC: 4154.3
+vif(lrm_2)
+```
+
+```{r}
+test$pred_churn <- predict(lrm_1, newdata = test, type = 'response')
+summary(test$pred_churn)
+```
+
+```{r}
+pred_churn <- ifelse(test$pred_churn > 0.50 , 1 , 0)
+```
+
+```{r}
+pred_churn <- as.factor(pred_churn)
+
+act_churn <- as.factor(test$Churn)
+
+```
+
+```{r}
+confusionMatrix( pred_churn, act_churn, positive = "1" )
+```
+# change cut off value
+# Creating custom function to find cutoff probability at which
+# sensitivity, specificity and overall accuracy are all equal.
+```{r}
+pred_probability <- test$pred_churn
+
+actual_label <- as.factor(test$Churn)
+
+s <- seq(min(pred_probability), max(pred_probability), length = 500)
+
+out_put <- data.frame(Sensitivity = rep(0, 500), 
+                      Specificity = rep(0, 500), 
+                      Accuracy  = rep(0, 500))
+
+```
+
+```{r}
+cutoff_finder <- function(cutoff) {
+                  require(caret)
+                  predicted_label <- as.factor(ifelse(pred_probability > cutoff, '1','0'))
+                  conf <- confusionMatrix(predicted_label, actual_label, positive = '1')
+                  out <- c(conf$byClass[1], conf$byClass[2], conf$overall[1]) 
+                  return(out) }
+
+for(i in 1:500) {out_put[i, ] <- cutoff_finder(s[i])}
+```
+
+```{r}
+cutoff <- s[which(abs(out_put$Sensitivity - out_put$Specificity) == 
+                      min(abs(out_put$Sensitivity - out_put$Specificity)))]
+cutoff
+```
+```{r}
+test$pred_churn_1 <- predict(lrm_1, newdata = test, type = 'response')
+summary(test$pred_churn_1)
+
+pred_churn_1 <- ifelse(test$pred_churn_1 > 0.3078247 , 1 , 0)
+```
+
+```{r}
+pred_churn_1 <- as.factor(pred_churn_1)
+
+act_churn_1 <- as.factor(test$Churn)
+
+```
+
+```{r}
+confusionMatrix( pred_churn_1, act_churn_1, positive = "1" )
+```
+# DECISION TREE
+#SPLITTING THE DATA AGAIN SINCE IN DT DUMMIES ARE NOT REQUIRED
+
+```{r}
+set.seed(100)
+model <- sample.split(data$Churn , SplitRatio = 0.70)
+train_dt = data[model,]
+test_dt = data[!model,]
+```
+
+```{r}
+model <- rpart(Churn~. , data=train_dt , method = "class")
+
+prp(model)
+
+rpart.plot(model)
+```
+
+```{r}
+test_dt$Churn <- as.factor(test_dt$Churn)
+```
+
+```{r}
+# prediction
+test_dt$predict_churn <- predict(model, newdata = test_dt,type = "class")
+
+```
+
+```{r}
+table(test_dt$Churn)
+table(test_dt$predict_churn)
+```
+```{r}
+# confusion matrix
+confusionMatrix(test_dt$predict_churn, test_dt$Churn , positive = "1")
+```
+```{r}
+# hyper parameter tuning by adding parameter cp 
+
+model_2 <- rpart(Churn~. , data=train_dt , cp=0.00001,method = "class")
+
+prp(model_2)
+```
+```{r}
+# prediction
+test_dt$predict_churn_2 <- predict(model_2,newdata = test_dt , type = "class")
+
+table(test_dt$Churn)
+table(test_dt$predict_churn_2)
+
+confusionMatrix(test_dt$predict_churn_2, test_dt$Churn , positive = "1")
+```
+#Random Forest
+```{r}
+str(train_dt$Churn)
+train_dt$Churn <- as.factor(train_dt$Churn)
+
+```
+
+```{r}
+rf_model <- randomForest(Churn ~ ., train_dt, ntree = 1000,
+                         do.trace = 50, importance = T)
+```
+```{r}
+varImp(rf_model)
+
+varImpPlot(rf_model)
+```
+```{r}
+plot(rf_model)
+
+print(rf_model)          # OOB estimate of  error rate: 20.85%
+```
+
+```{r}
+# predictions
+
+pred_churn <- predict(rf_model,newdata = test_dt,type = "class")
+
+confusionMatrix(as.factor(pred_churn),test_dt$Churn)
+
+
+```
+```{r}
+table(pred_churn,test_dt$Churn)
+```
+
+```{r}
+# hyperparameter tuning
+
+control <- trainControl(method = "repeatedcv",number = 10,repeats = 3,
+                        search = "grid")
+```
+
+```{r}
+set.seed(100)
+tune <- expand.grid(.mtry=c(1:15))
+
+rf_grid <- train(Churn~.,train_dt,method="rf",metric="accuracy",tuneGrid=tune,
+                 trControl=control)
+
+print(rf_grid)
+
+```
+
+```{r}
+plot(rf_grid)
+```
+
+```{r}
+# lets try  mtry=3 , it gives the maximum accuracy and reduce the OOB error slightly.
+
+rf_model1 <- randomForest(Churn ~ ., train_dt, ntree = 1000,
+                          do.trace = 50, importance = T,mtry=3)
+```
+
+```{r}
+varImp(rf_model1)
+
+
+varImpPlot(rf_model1)
+```
+
+```{r}
+print(rf_model1)      # OOB estimate of  error rate: 20.66%
+```
+```{r}
+
+# prediction on test data
+
+pred_test1 <- predict(rf_model1,newdata = test_dt,type = "class")
+
+confusionMatrix(pred_test1,test_dt$Churn)
+```
+# KNN
+```{r}
+train_labels <- as.factor(train$Churn)
+
+test_labels <-as.factor(test$Churn)
+```
+
+```{r}
+# with default k value i.e 1
+# need to remove predictive column i.e obtained from above mentioned models for knn
+
+test$pred_churn <- NULL
+test$pred_churn_1 <- NULL
+
+knn_labels <- knn(train = train[,-38], cl=train_labels, test = test[,-38])
+
+summary(knn_labels)
+table(test$Churn)
+```
+```{r}
+# CONFUSION MATRIX 
+confusionMatrix(knn_labels,as.factor(test$Churn),positive="1")
+```
+```{r}
+# optimal k value with accuracy
+i = 1
+k.optm = 1
+for (i  in 1:15) {
+  knn.model <- knn(train = train,cl=train_labels,test = test,k=i)
+  k.optm[i] <- 100*sum(test_labels==knn.model)/NROW(test_labels)
+  k = i
+  cat(k ,"=",k.optm[i],"\n")}
+
+
+plot(k.optm,type = "b",xlab = "k-value",ylab = "accuracy")
+```
+```{r}
+# as we can see more accuracy  at k =7 
+knn_labels1 <- knn(train = train[,-38],cl=train_labels,test = test[,-38],k=7)
+
+summary(knn_labels1)
+ 
+confusionMatrix(knn_labels1,as.factor(test$Churn),positive = "1")
+```
+#SVM
+```{r}
+svm_model <- svm(as.factor(Churn)~. , data=train)
+
+summary(svm_model)
+
+pred_test <- predict(svm_model,newdata = test)
+
+confusionMatrix(pred_test,as.factor(test$Churn) , positive = "1")
+
+```
+#The result of all the models is written in docs file attached with the notebook.
+
+#navies bayes 
+
+```{r}
+test_dt$pred_churn <- NULL
+test_dt$pred_churn_1 <- NULL
+```
+
+
+```{r}
+model_naive <- naiveBayes(formula = Churn ~ ., data = train_dt, type = "class")
+
+predict1 <- predict(object = model_naive, newdata = train_dt)
+predict2 <- predict(object = model_naive, newdata = test_dt)
+
+```
+
+```{r}
+confusionMatrix(predict1, reference = train_dt$Churn, positive = "1")
+
+```
+
+```{r}
+# for data test
+confusionMatrix(predict2, reference = test_dt$Churn, positive = "1")
+```
